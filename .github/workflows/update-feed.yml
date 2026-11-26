@@ -29,6 +29,52 @@ jobs:
       - name: Feed ophalen
         env:
           IG_TOKEN: ${{ secrets.IG_TOKEN }}
+          IG_USER_ID: ${{ vars.IG_USER_ID }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: python fetch_feed.py
+
+      - name: Wijzigingen opslaan
+        run: |
+          git config user.name "feed-bot"
+          git config user.email "feed-bot@users.noreply.github.com"
+          git add docs
+          if git diff --cached --quiet; then
+            echo "Geen nieuwe posts."
+          else
+            git commit -m "Feed bijgewerkt"
+            git push
+          fi
+name: Instagram-feed bijwerken
+
+on:
+  schedule:
+    - cron: "17 5 * * *"   # elke dag om 05:17 UTC (06:17 / 07:17 Nederlandse tijd)
+  workflow_dispatch: {}    # handmatig starten via het tabblad Actions
+
+permissions:
+  contents: write
+
+concurrency:
+  group: feed
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Benodigdheden installeren
+        run: pip install requests pillow pynacl
+
+      - name: Feed ophalen
+        env:
+          IG_TOKEN: ${{ secrets.IG_TOKEN }}
           GH_PAT: ${{ secrets.GH_PAT }}
         run: python fetch_feed.py
 
