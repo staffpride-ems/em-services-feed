@@ -3,8 +3,11 @@ Haalt de laatste Instagram-posts van EM Services op en zet ze klaar voor de webs
 
 Draait dagelijks via GitHub Actions (.github/workflows/update-feed.yml).
 - Leest de Instagram-toegangssleutel uit de geheime instelling IG_TOKEN.
-- Verlengt de sleutel elke run (hij is 60 dagen geldig) en slaat de nieuwe
-  sleutel weer op als geheime instelling, via GH_PAT.
+- Twee soorten sleutels werken:
+  * Systeemgebruiker-sleutel uit Meta Business (verloopt nooit). Zet dan ook
+    IG_USER_ID (het Instagram-account-ID). Het script gebruikt graph.facebook.com.
+  * Instagram-login-sleutel (60 dagen geldig). Die wordt elke run verlengd en via
+    GH_PAT weer opgeslagen. Het script gebruikt graph.instagram.com.
 - Downloadt de foto's (bij reels de stilstaande thumbnail), verkleint ze en
   schrijft docs/feed.json. De website laadt daarna alles vanaf
   feed.em-services.nl, dus bezoekers maken geen contact met Instagram.
@@ -21,8 +24,13 @@ from pathlib import Path
 import requests
 from PIL import Image
 
-API = "https://graph.instagram.com"
+IG_API = "https://graph.instagram.com"
+FB_API = "https://graph.facebook.com"
 API_VERSION = "v26.0"
+IG_USER_ID = os.environ.get("IG_USER_ID", "").strip()
+# Met een IG_USER_ID werken we via de Facebook-route (systeemgebruiker-sleutel).
+API = FB_API if IG_USER_ID else IG_API
+ME = IG_USER_ID or "me"
 MAX_POSTS = 12          # aantal posts dat de website bewaart
 IMG_SIZE = 640          # breedte/hoogte van de vierkante thumbnails in px
 
@@ -39,7 +47,7 @@ def refresh_token(token: str) -> str:
     """Verleng de sleutel met 60 dagen. Mislukt dat, ga door met de oude."""
     try:
         r = requests.get(
-            f"{API}/refresh_access_token",
+            f"{IG_API}/refresh_access_token",
             params={"grant_type": "ig_refresh_token", "access_token": token},
             timeout=30,
         )
@@ -130,15 +138,16 @@ def main() -> None:
     if not token:
         sys.exit("IG_TOKEN ontbreekt. Zet de Instagram-sleutel als geheime instelling in GitHub.")
 
-    new_token = refresh_token(token)
-    if new_token != token:
-        save_token_to_github(new_token)
-        token = new_token
+    if not IG_USER_ID:  # alleen Instagram-login-sleutels verlopen
+        new_token = refresh_token(token)
+        if new_token != token:
+            save_token_to_github(new_token)
+            token = new_token
 
     IMG_DIR.mkdir(parents=True, exist_ok=True)
 
-    profile = get("me", token, fields="username,name,profile_picture_url,followers_count,follows_count,media_count")
-    media = get("me/media", token, limit=MAX_POSTS,
+    profile = get(ME, token, fields="username,name,profile_picture_url,followers_count,follows_count,media_count")
+    media = get(f"{ME}/media", token, limit=MAX_POSTS,
                 fields="id,caption,media_type,media_url,thumbnail_url,permalink,timestamp").get("data", [])
 
     posts, keep = [], set()
